@@ -93,9 +93,39 @@ ModelInterpreter &ModelInterpreter::operator=(ModelInterpreter interp) {
     return *this;
 }
 
+static void ConvertConfigStrToMap(const std::string& config_str,
+                                  std::map<std::string, std::string>& config_map) {
+    // convert config_str to config_map
+    // config_str format is
+    // "name1:key1,key2;name2:key1,key2"
+    std::stringstream ss(config_str);
+    while (ss.good()) {
+        std::string sub_str;
+        getline(ss, sub_str, ';');
+        auto split_pos = sub_str.find(':');
+        if (split_pos != std::string::npos) {
+            config_map.emplace(
+                sub_str.substr(0, split_pos),
+                sub_str.substr(split_pos + 1));
+        }
+    }
+}
+
 // Interpret the proto and model.
 Status ModelInterpreter::Interpret(std::vector<std::string> &params) {
     std::string empty_content = "";
+
+    // if extra_config in params
+    std::map<std::string, std::string> config_map;
+    for (auto iter = params.begin(); iter != params.end(); iter++) {
+        // len of "ExtraConfig:" is 12
+        if (iter->size() > 12 && iter->substr(0, 12) == "ExtraConfig:") {
+            ConvertConfigStrToMap(iter->substr(12), config_map);
+            // remove ExtraConfig from params, don't affect the following Interpret
+            params.erase(iter);
+            break;
+        }
+    }
 
     auto &proto_content = params.size() > 0 ? params[0] : empty_content;
     Status status       = InterpretProto(proto_content);
@@ -113,7 +143,37 @@ Status ModelInterpreter::Interpret(std::vector<std::string> &params) {
         params_md5_.push_back(md5(item));
         LOGD("model params md5: %s\n", md5(item).c_str());
     }
+
+    if (!config_map.empty()) {
+        status          = InterpretConfig(config_map);
+    }
     return status;
+}
+
+// Interpret the extra config map
+Status ModelInterpreter::InterpretConfig(std::map<std::string, std::string>& config_map) {
+    NetStructure *structure = GetNetStructure();
+    std::vector<std::shared_ptr<LayerInfo>> layers_orig = structure->layers;
+    const int count                                     = (const int)layers_orig.size();
+
+    for (int index = 0; index < count; index++) {
+        auto layer_info = layers_orig[index];
+        auto layer_param = layer_info->param.get();
+
+        auto layer_search = config_map.find(layer_info->name);
+        if (layer_search != config_map.end()) {
+            auto config_str = layer_search->second;
+            // config_str format is [key1,key2]
+            // store this string to map<str, str>
+            std::stringstream ss(config_str);
+            while (ss.good()) {
+                std::string sub_str;
+                getline(ss, sub_str, ',');
+                layer_param->extra_config.emplace(sub_str);
+            }
+        }
+    }
+    return TNN_OK;
 }
 
 // Copy Interpreter
@@ -326,6 +386,11 @@ Status ModelInterpreter::InterpretLayer(const std::string &layer_str) {
         param->quantized = true;
     }
 
+    // is dynamic range quantized
+    if (type_str.compare(0, 21, "DynamicRangeQuantized") == 0) {
+        param->dynamic_range_quantized = true;
+    }
+
     // type
     if (param && layer_cfg_arr.size() >= 1) {
         param->type = cur_layer->type_str;
@@ -418,6 +483,7 @@ Status ModelInterpreter::InterpretModel(std::string &model_content) {
 
         const_map[key] = buffer;
     }
+
     net_resource->constant_map = const_map;
 
     return TNN_OK;

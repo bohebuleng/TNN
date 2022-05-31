@@ -1,6 +1,31 @@
+# import torch.nn as nn
 from pytnn._pytnn import *
 from typing import List, Dict, Any
 import numpy
+import pickle
+import genericpath
+from subprocess import getoutput
+#from tkinter.messagebox import NO
+from typing import *
+#import torch
+import sys
+import GPUtil
+import json
+import re
+import copy
+import os
+from threading import Lock
+import hashlib
+import onnxruntime as ort
+# from tiacc_inference._tiacc_inference import *
+import time
+import shutil
+# from tiacc_inference.status import StatusCode, Status
+
+
+# from tiacc_inference.tiacc_torchscript_inference import optimize_torchscript_module
+# from tiacc_inference.utils import gen_shape_from_data, gen_report
+# from tiacc_inference.status import StatusCode, Status
 
 def _supported_input_size_type(input_size) -> bool:
     if isinstance(input_size, tuple):
@@ -181,15 +206,672 @@ def _replace_last(source_string, replace_what, replace_with):
     head, _sep, tail = source_string.rpartition(replace_what)
     return head + replace_with + tail
 
-def load(model_path, config_dict = {}):
-    module = Module(model_path)
-    input_names = module.parsed_input_names()
+infer_framework_map = dict()
+
+try:
+    import torch
+except ModuleNotFoundError:
+    infer_framework_map['torch'] = False
+else:
+    infer_framework_map['torch'] = True
+
+def convert_data_to_shape(obj, pre):
+    status = Status(StatusCode.TIACC_OK, '')
+    shape = {}
+    types = {}
+    if isinstance(obj, dict):
+        # print('dict')
+        for key,value in obj.items():
+            shape_tmp, types_tmp, rtn = convert_data_to_shape(value, pre + '[' + key + ']')
+            if rtn.code != StatusCode.TIACC_OK:
+                return None, None, rtn
+            shape = {**shape, **shape_tmp}
+            types = {**types, **types_tmp}
+        return shape, types, status
+    elif isinstance(obj, list):
+        # print('list')
+        for i in range(len(obj)):
+            shape_tmp, types_tmp, rtn = convert_data_to_shape(obj[i], pre + '[' + str(i) + ']')
+            if rtn.code != StatusCode.TIACC_OK:
+                return None, None, rtn
+            shape = {**shape, **shape_tmp}
+            types = {**types, **types_tmp}
+        return shape, types, status
+    elif isinstance(obj, tuple):
+        # print('tuple')
+        for i in range(len(obj)):
+            shape_tmp, types_tmp, rtn = convert_data_to_shape(obj[i], pre + '(' + str(i) + ')')
+            if rtn.code != StatusCode.TIACC_OK:
+                return None, None, rtn
+            shape = {**shape, **shape_tmp}
+            types = {**types, **types_tmp}
+        return shape, types, status
+    elif infer_framework_map['torch'] and torch.is_tensor(obj):
+        # print('tensor')
+        shape[pre] = list(obj.shape)
+        types[pre] = convert_tensor_type(obj.dtype)
+        return shape, types, status
+    else:
+        print("unsupport data type")
+        status = Status(StatusCode.TIACC_ERR, "unsupport data type")
+        return None, None, status
+
+def gen_shape_from_data(data):
+# def gen_shape_from_data(data,input_name):
+    min_input_shapes, max_input_shapes, status = {}, {}, Status(StatusCode.TIACC_OK, '')
+    types = {}
+    # input_name = list(min_input_shape.keys())
+    # import pdb
+    # pdb.set_trace()
+    # for ii in range(len(data)):
+    #     name = 
+    #     shape, type, rtn = convert_data_to_shape(data[ii], name)
+    for ii in range(len(data)):
+        name = "input_" + str(ii)
+        shape, type, rtn = convert_data_to_shape(data[ii], name)
+        return None, None, None, rtn
+        # if rtn.code != StatusCode.TIACC_OK: #？？?
+            # return None, None, None, rtn
+
+        min_input_shapes = {**min_input_shapes, **shape}
+        max_input_shapes = {**max_input_shapes, **shape}
+        types = {**types, **type}
+    return min_input_shapes, max_input_shapes, types, status
+
+# infer_framework_map = dict()
+# try:
+#     import torch
+# except ModuleNotFoundError:
+#     infer_framework_map['torch'] = False
+# else:
+#     infer_framework_map['torch'] = True
+
+def gen_report(test_shape):
+    # generate report info
+    software_env = []
+    # if infer_framework_map['torch']:
+    #     torch_version = ""
+    #     try:
+    #         torch_version = torch.__version__.split('+')[0]
+    #     except:
+    #         torch_version = ""
+    #     software_env.append({"software_environment": "pytorch", "version": torch_version})
+    software_env.append({"software_environment": "cuda", "version": GetCUDAVersion()})
+    software_env.append({"software_envrionment": "cudnn", "version": GetCudnnVersion()})
+    software_env.append({"software_environment": "TensorRT", "version": GetTensorRTVersion()})
+
+    hardware_env = {}
+    hardware_env['device_type'] = "gpu"
+    gpu_name = ""
+    try:
+        gpu_name = GPUtil.getGPUs()[0].name
+    except:
+        gpu_name = ""
+    hardware_env['microarchitecture'] = gpu_name
+
+    test_data_info = {}
+    test_data_info['test_data_source'] = 'user provided'
+    test_data_info['test_data_shape'] = str(test_shape)
+    test_data_info['test_data_type'] = ''
+
+    optimization_result = {}
+    optimization_result['baseline_time'] = ""
+    optimization_result['optimized_time'] = ""
+    optimization_result['baseline_qps'] = ""
+    optimization_result['optimized_qps'] = ""
+    optimization_result['speed_up'] = ""
+
+    status = {}
+    status['code'] = StatusCode.TIACC_OK
+    status['message'] = ""
+
+    result = {}
+    result['software_environment'] = software_env
+    result['hardware_environment'] = hardware_env
+    result['test_data_info'] = test_data_info
+    result['optimization_result'] = optimization_result
+    result['status'] = status
+
+    return result
+
+from enum import Enum, unique
+
+@unique
+class StatusCode(int, Enum):
+    TIACC_OK    = 0
+
+    TIACC_ERR      = 1000
+
+class Status:
+    def __init__(self, code=StatusCode.TIACC_OK, message=''):
+        self.code = code
+        self.message = message
+#这个status和pytnn原本的status冲突？？？
+    def get_dict(self):
+        return {'code': self.code, 'message': self.message}
+
+shape_type = "^[0-9]+(\*[0-9]+)*$"
+
+def seperate_shapes(shapes : str):
+    status = Status(StatusCode.TIACC_OK, '')
+    dim = shapes[0].count('*') + 1
+    min_shape = [100000] * dim
+    max_shape = [-1] * dim
+    for shape in shapes:
+        if re.match(shape_type, shape) == None:
+            print("Error shape format! Shape format should be positive numbers splited by '*', \n\
+                   e.g. 'n*c*h*w'.")
+
+            status = Status(StatusCode.TIACC_ERR, "Error shape format! Shape format should be positive numbers splited by '*', \n\
+                            e.g. 'n*c*h*w'.")
+            return None, None, status
+        if shape.count('*') != dim - 1:
+            print("Range shape should keep the dim size consistent!")
+
+            status = Status(StatusCode.TIACC_ERR, "Range shape should keep the dim size consistent!")
+            return None, None, status
+        shape = shape.replace('min:', '')
+        shape = shape.replace('max:', '')
+        shape = shape.split('*')
+        shape = list(map(int, shape))
+        for i in range(dim):
+            if shape[i] < 1:
+                print("Shapes should be positive!")
+
+                status = Status(StatusCode.TIACC_ERR, "Shapes should be positive!")
+                return None, None, status
+            if shape[i] < min_shape[i]:
+                min_shape[i] = shape[i]
+            if shape[i] > max_shape[i]:
+                max_shape[i] = shape[i]
+    return min_shape, max_shape, status
+
+type_pattern = '(int)|(float)|(fp16)|(int8)'
+range_pattern = '(range)|(seperate)'
+def seperate_key(key: str):
+    if re.search('long', key):
+        return 'long'
+    if re.search('int', key):
+        return 'int32'
+    if re.search('int8', key):
+        return 'int8'
+    if re.search('fp16', key):
+        return 'fp16'
+    return 'float'
+
+def convert_to_tnn_name(obj, pre) -> dict:
+    '''
+    Returns:
+        {
+            'min_shapes' : dict of prefix and shape,
+            'max_shapes' : dict of prefix and shape,
+        },
+        Status(TIACC_OK/TIACC_ERR, msg)
+    '''
+    status = Status(StatusCode.TIACC_OK, '')
+    min_shapes, max_shapes, types = {}, {}, {}
+    if isinstance(obj, dict):
+        # print("dict")
+        # filter keyword 'range'
+        key = list(obj.keys())[0]
+        if re.search(type_pattern, key) or re.search(range_pattern, key):
+            if isinstance(obj[key], list):
+                min_shape, max_shape, rtn = seperate_shapes(obj[key])
+                if rtn.code != StatusCode.TIACC_OK:
+                    return None, rtn
+            else:
+                min_shape, max_shape, rtn = seperate_shapes([obj[key]])
+                if rtn.code != StatusCode.TIACC_OK:
+                    return None, rtn
+            min_shapes[pre] = min_shape
+            max_shapes[pre] = max_shape
+            types[pre] = seperate_key(key)
+            return {'min_shapes': min_shapes, 'max_shapes': max_shapes, 'types': types}, status
+        # if 'range' in obj:
+        #     min_shape, max_shape = seperate_shapes(obj['range'])
+        #     min_shapes[pre] = min_shape
+        #     max_shapes[pre] = max_shape
+        #     return {'min_shapes': min_shapes, 'max_shapes': max_shapes}
+        # if 'seperate' in obj:
+        #     min_shape, max_shape = seperate_shapes(obj['seperate'])
+        #     min_shapes[pre] = min_shape
+        #     max_shapes[pre] = max_shape
+        #     return {'min_shapes': min_shapes, 'max_shapes': max_shapes}
+        for key,value in obj.items():
+            shapes, status = convert_to_tnn_name(value, pre + '[' + key + ']')
+            min_shapes = {**min_shapes, **shapes['min_shapes']}
+            max_shapes = {**max_shapes, **shapes['max_shapes']}
+            types      = {**types, **shapes['types']}
+        return {'min_shapes': min_shapes, 'max_shapes': max_shapes, 'types': types}, status
+
+    elif isinstance(obj, list):
+        # print("list")
+        for i in range(len(obj)):
+            shapes, status = convert_to_tnn_name(obj[i], pre + '[' + str(i) + ']')
+            min_shapes = {**min_shapes, **shapes['min_shapes']}
+            max_shapes = {**max_shapes, **shapes['max_shapes']}
+            types      = {**types, **shapes['types']}
+        return {'min_shapes': min_shapes, 'max_shapes': max_shapes, 'types': types}, status
+
+    elif isinstance(obj, tuple):
+        # print("tuple")
+        for i in range(len(obj)):
+            shapes, status = convert_to_tnn_name(obj[i], pre + '(' + str(i) + ')')
+            min_shapes = {**min_shapes, **shapes['min_shapes']}
+            max_shapes = {**max_shapes, **shapes['max_shapes']}
+            types      = {**types, **shapes['types']}
+        return {'min_shapes': min_shapes, 'max_shapes': max_shapes, 'types': types}, status
+
+    elif isinstance(obj, str):
+        # print("string")
+        if re.match(shape_type, obj) != None:
+            min_shape, max_shape, rtn = seperate_shapes([obj])
+            if rtn.code != StatusCode.TIACC_OK:
+                return None, rtn
+            min_shapes[pre] = min_shape
+            max_shapes[pre] = max_shape
+            types[pre] = 'float'
+            return {'min_shapes': min_shapes, 'max_shapes': max_shapes, 'types': types}, status
+        else:
+            print("Error shape format! Shape format should be positive numbers splited by '*', \n\
+                           e.g. 'n*c*h*w'.")
+
+            status = Status(StatusCode.TIACC_ERR, "Error shape format! Shape format should be positive numbers splited by '*', \n\
+                            e.g. 'n*c*h*w'.")
+            return None, status
+    else:
+        print('Error type for tnn input name convert!')
+
+        status = Status(StatusCode.TIACC_ERR, 'Error type for tnn input name convert!')
+        return None, status
+
+def seperate_shape(input):
+    status = Status(StatusCode.TIACC_OK, '')
+    min_input, max_input, types = {}, {}, {}
+    for ii in range(len(input)):
+        name = "input_" + str(ii)
+        shapes, rtn = convert_to_tnn_name(input[ii], name)
+        if rtn.code != StatusCode.TIACC_OK:
+            return None, None, None, rtn
+
+        min_input = {**min_input, **shapes['min_shapes']}
+        max_input = {**max_input, **shapes['max_shapes']}
+        types     = {**types,     **shapes['types']}
+    return min_input, max_input, types, status
+
+def seperate_type_v2(key: str):
+    type = 'float'
+    if (re.search('int32', key)):
+        type = 'int32'
+    if (re.search('int64', key)):
+        type = 'long'
+    if (re.search('half', key)):
+        type = 'fp16'
+    if (re.search('bool', key)):
+        type = 'bool'
+    
+    format = 'tensor'
+    if (re.search('scalar', key)):
+        format = 'scalar'
+    if (re.search('array', key)):
+        format = 'array'
+    
+    return type, format
+
+def sepearte_info_v2(info: str):
+    status = Status(StatusCode.TIACC_OK, '')
+    type, shape = info.split('(')
+    data_type, format = seperate_type_v2(type)
+    shape = shape.replace(')', '')
+    shape = shape.replace(' ', '')
+    shape = shape.replace('[', '')
+    shape = shape.replace(']', '')
+    shapes = shape.split(',')
+    min_shape, max_shape, status = seperate_shapes(shapes)
+    return data_type, format, min_shape, max_shape, status
+
+def seperate_shape_v2(inputs):
+    status = Status(StatusCode.TIACC_OK, '')
+    min_input, max_input, types, formats = {}, {}, {}, {}
+    input: str
+    for input in inputs:
+        try:
+            name, info = input.split(':')
+            data_type, format, min_shape, max_shape, status = sepearte_info_v2(info)
+            min_input[name] = min_shape
+            max_input[name] = max_shape
+            types[name]     = data_type
+            formats[name]   = format
+        except Exception as ex:
+            print('shape format error: {}'.format(ex))
+            status = Status(StatusCode.TIACC_ERR, 'shape format error: {}'.format(ex))
+            return (None, None, None, None, status)
+    
+    return min_input, max_input, types, formats, status
+
+def build_val(shape, type, format, device):
+    if (format == 'tensor'):
+        if type == 'float':
+            res = torch.rand(*shape)
+        if type == 'long':
+            res = (torch.rand(*shape)*256.0).long()
+        if type == 'int32':
+            res = (torch.rand(*shape) * 256.0).int()
+        if type == 'fp16':
+            res = torch.rand(*shape, dtype = torch.float16)
+        if (device == 0):
+            res = res.cuda()
+        return res
+
+    if (format == 'scalar'):
+        if type == 'float':
+            res = torch.rand(1)
+        if type == 'long':
+            res = (torch.rand(*shape)*256.0).long()
+        if type == 'int32':
+            res = (torch.rand(*shape)*256.0).int()
+        if type == 'fp16':
+            res = torch.rand(*shape, dtype = torch.float16)
+        if (device == 0):
+            res = res.cuda()
+        return res.item()
+    
+    if (format == 'array'):
+        import numpy as np
+        if type == 'float':
+            res = np.random.random(shape).astype(np.float32)
+        if type == 'long':
+            res = np.random.randint(shape).astype(np.int64)
+        if type == 'int32':
+            res = np.random.randint(shape)
+        if type == 'fp16':
+            res = np.random.random(shape).astype(np.float16)
+        return res
+
+def iterate_name_v2(name: str, inputs, val):
+    status = Status(StatusCode.TIACC_OK, '')
+
+    if (len(name) == 0): #???why len(name)==0是正常的
+        return val, status
+    
+    if (re.match('^\[', name) != None):
+        res = re.match('^\[\d+\]', name)
+        # res = re.match('^\[\D+\]',name)
+        if (res != None):
+            # list
+            index = int(name[res.start()+1:res.end()-1])
+            if (inputs == None):
+                inputs = []
+            # todo: incorrect order of index may get error
+            if (index < len(inputs)):
+                inputs[index], status = iterate_name_v2(name[res.end():], inputs[index], val)
+            elif (index == len(inputs)):
+                rtp = iterate_name_v2(name[res.end():], None, val)
+                inputs.append(rtp[0])
+                status = rtp[1]
+            else:
+                status = Status(StatusCode.TIACC_ERR, 'invalid data type')
+                return None, status
+            return inputs, status
+        else:
+            # import pdb
+            # pdb.set_trace()
+            res = re.match('^\[.*?\]', name)
+            print(res)
+            print(name)
+            print(inputs)
+            if (res != None):
+                # dict
+                if (inputs == None):
+                    inputs = {}
+                # inputs = {}
+                key = name[res.start()+1:res.end()-1]
+                if (inputs.get(key) != None):
+                    inputs[key], status = iterate_name_v2(name[res.end():], inputs[key], val)
+                else:
+                    inputs[key], status = iterate_name_v2(name[res.end():], None, val)
+                return inputs, status
+            else:
+                print("Input name format error.")
+                status = Status(StatusCode.TIACC_ERR, 'Input name format error.')
+                return None, status
+    else:
+        print("Input name format error.")
+        status = Status(StatusCode.TIACC_ERR, 'Input name format error.')
+        return None, status
+                
+    # todo: tuple
+        
+def convert_shape_to_data_v2(input_shapes:dict, types:dict, format:dict, device:dict):
+    status = Status(StatusCode.TIACC_OK, '')
+    # inputs = []
+    inputs = {}
+    # import pdb
+    # pdb.set_trace()
+    for name, val in input_shapes.items():
+        import copy
+        ##tmp_name = name
+        # tmp_name = copy.deepcopy(name)
+        # tmp_name = tmp_name.lstrip('x') #???剩下了0:shape
+        # mat = re.match('^\d+', tmp_name)
+        ## mat = re.match('^\D+', tmp_name)
+        # name_list = list(tmp_name)
+        # name_list.insert(mat.end(), ']')
+        # name_list.insert(mat.start(), '[')
+        # tmp_name = ''.join(name_list)
+        value = build_val(val, types[name], format[name], device)
+        inputs[name] = value
+        # torch tensor inputs
+        # inputs, status = iterate_name_v2(tmp_name, inputs, value)
+        # sth
+    return inputs, status
+
+
+def gen_torch_tensor(shape, type = 'float'):
+    if type == 'long':
+        return (torch.rand(*shape)*256.0).long()
+    if type == 'int32':
+        return (torch.rand(*shape) * 256.0).int()
+    if type == 'int8':
+        return (torch.rand(*shape) * 256.0).type(torch.int8)
+    if type == 'fp16':
+        return torch.rand(*shape, dtype = torch.float16)
+    return torch.rand(*shape)
+
+def convert_shape_to_data(obj, device_type):
+    status = Status(StatusCode.TIACC_OK, '')
+    if isinstance(obj, list):
+        test_data = []
+        for i in range(len(obj)):
+            data, rtn = convert_shape_to_data(obj[i], device_type)
+            if rtn.code != StatusCode.TIACC_OK:
+                return None, rtn
+            test_data.append(data)
+        return test_data, status
+
+    elif isinstance(obj, dict):
+        key = list(obj.keys())[0]
+        if re.search(type_pattern, key) or re.search(range_pattern, key):
+            if isinstance(obj[key], list):
+                min_shape, max_shape, rtn = seperate_shapes(obj[key])
+                if rtn.code != StatusCode.TIACC_OK:
+                    return None, rtn
+            else:
+                min_shape, max_shape, rtn = seperate_shapes([obj[key]])
+                if rtn.code != StatusCode.TIACC_OK:
+                    return None, rtn
+            type = seperate_key(key)
+            data_tmp = gen_torch_tensor(max_shape, type)
+            if device_type == 0:
+                data_tmp = data_tmp.cuda()
+            return data_tmp, status
+
+        test_data = {}
+        for key,value in obj.items():
+            data, rtn = convert_shape_to_data(obj[key], device_type)
+            if rtn.code != StatusCode.TIACC_OK:
+                return None, rtn
+            test_data[key] = data
+        return test_data, status
+
+    elif isinstance(obj, tuple):
+        test_data = []
+        for i in range(len(obj)):
+            data, rtn = convert_shape_to_data(obj[i], device_type)
+            if rtn.code != Status.TIACC_OK:
+                return None, rtn
+            test_data.append(data)
+        return list(test_data), status
+
+    elif isinstance(obj, str):
+        min_shape, max_shape, rtn = seperate_shapes([obj])
+        if rtn.code != StatusCode.TIACC_OK:
+            return None, rtn
+
+        data_tmp = torch.rand(*max_shape)
+        if device_type == 0:
+            data_tmp = data_tmp.cuda()
+        return data_tmp, status
+    
+    else:
+        print('Error input shape format!')
+        status = Status(StatusCode.TIACC_ERR, 'Error input shape format!')
+        return None, status
+
+def optimize(
+    input_model: Any,
+    # input_onnx: Any,
+    optimization_level: int,
+    device_type: int,
+    input_shapes = {},
+    input_nodes_names = [],
+    output_nodes_names = [],
+    test_data = [],
+    save_path = "",
+    device_id = 0,
+):
+    dirs = os.listdir(input_model)
+    flag1 = False
+    flag2 = False
+    flag3 = False
+    for file in dirs:
+        if "tnnproto" in file:
+            tnnproto_name = file
+            flag1 = True
+            print(tnnproto_name)
+        elif "tnnmodel" in file:
+            tnnmodel_name = file
+            flag2 = True
+            print(tnnmodel_name)
+        elif "onnx" in file:
+            onnx_name = file
+            flag3 = True
+            print(onnx_name)
+    if flag1 == False or flag2 == False or flag3 == False:
+        print("There is no tnnmodel or onnx in your path.")
+        return
+    module = Module(input_model + '/' + tnnproto_name)
+    # set min&max input shapes
+    types = {}
+    if len(input_shapes) > 0:
+        min_input_shapes, max_input_shapes, types, formats, status = seperate_shape_v2(input_shapes)
+    elif len(test_data) > 0:
+        min_input_shapes, max_input_shapes, types, status = gen_shape_from_data(test_data,list(min_input_shapes.keys()))
+    else:
+        print("Error: At least one between input_shapes and test_data should be provided!")
+        exit(0)
+
+    # set test_data
+    if len(test_data) == 0:
+        # test_data, status = convert_shape_to_data(input_shapes, device_type)
+        test_data, status = convert_shape_to_data_v2(max_input_shapes, types, formats, device_type)
+    else:
+        real_input_shape_res  = gen_shape_from_data(test_data)
+        status = real_input_shape_res[3]
+    # print(min_input_shapes)
+    # print(max_input_shapes)
+    # print(types)
+    # print(formats)
+    # print(test_data)
+    config_dict={}
+    config_dict["precision"] = "fp32" if optimization_level == 0 else "fp16"
+    config_dict["device_type"] = "cuda" if device_type == 0 else "x86"
+    config_dict["cache_path"] = save_path
+    network_config = _parse_network_config(config_dict)
+    print(config_dict)
+    module.create_inst(network_config, min_input_shapes, max_input_shapes)
+    # save input info as pickle file in save_dir
+    a_dict = {'min_input_shapes':min_input_shapes, 'max_input_shapes':max_input_shapes, 'types':types, 'precision':config_dict["precision"], 'device_type':device_type}
+    file = open(save_path + '/' + 'input_info.pickle','wb')
+    pickle.dump(a_dict, file)
+    file.close()
+    # save tnnproto, tnnmodel and cache in save_dir
+    shutil.copyfile(input_model + '/' + tnnproto_name, save_path + '/' + tnnproto_name[:-8] + 'optimize.tnnproto' )
+    shutil.copyfile(input_model + '/' + tnnmodel_name, save_path + '/' + tnnproto_name[:-8] + 'optimize.tnnmodel' )
+    # tnn runtime
+    N = 100
+    output=[]
+    timelist = []
+    output=module.forward(test_data)
+    time_0=time.time()
+    for i in range(N):
+        output=module.forward(test_data)
+    time_1=time.time()
+    time_tnn = (time_1-time_0)/N*1000.0
+    print("[TNN]", N, "iter average time = ", time_tnn, " (ms).")
+    # print(output[0])
+    # onnxruntime
+    ort_sess = ort.InferenceSession(input_model + '/' + onnx_name)
+    outputs_onnx = ort_sess.run(None, test_data)
+    time_2 = time.time()
+    for i in range(N):
+        outputs_onnx = ort_sess.run(None, test_data)
+    time_3 = time.time()
+    time_onnx = (time_3-time_2)/N*1000.0
+    print("[ONNX]", N, "iter average time = ", time_onnx, " (ms).")
+    print('acc:', time_onnx/time_tnn)
+    return module
+
+def load(model_path):
+    config_dict = {}
+    dirs = os.listdir(model_path)
+    flag1 = False
+    flag2 = False
+    flag3 = False
+    for file in dirs:
+        if "tnnproto" in file:
+            tnnproto_name = file
+            flag1 = True
+            print(tnnproto_name)
+        elif "tnnmodel" in file:
+            tnnmodel_name = file
+            flag2 = True
+            print(tnnmodel_name)
+        elif "pickle" in file:
+            input_info = file
+            print(input_info)
+            flag3 = True
+    if flag1 == False or flag2 == False or flag3 == False:
+        print("There is no tnnmodel or input info in your path.")
+        return
+    module = Module(model_path + '/' + tnnproto_name)
+    # input_names = module.parsed_input_names()
     min_input_shapes = None
     max_input_shapes = None
-    if "input_names" in config_dict:
-        input_names = config_dict["input_names"]
-    if "input_shapes" in config_dict:
-        min_input_shapes, max_input_shapes = _parse_input_ranges(config_dict["input_shapes"], input_names)
+    config_dict["cache_path"] = model_path
+    # if "input_names" in config_dict:
+    #     input_names = config_dict["input_names"]
+    # if "input_shapes" in config_dict:
+    #     min_input_shapes, max_input_shapes = _parse_input_ranges(config_dict["input_shapes"], input_names)
+    f = open(model_path + '/' + input_info,'rb')
+    c = pickle.load(f)
+    min_input_shapes = c["min_input_shapes"]
+    max_input_shapes = c["max_input_shapes"]
+    print(c["precision"])
+    print(c["device_type"])
+    config_dict["precision"] = c["precision"]
+    config_dict["device_type"] = "cuda" if c["device_type"] == 0 else "x86"
+    f.close()
     network_config = _parse_network_config(config_dict)
     module.create_inst(network_config, min_input_shapes, max_input_shapes)
     return module
@@ -202,6 +884,7 @@ def load_raw_range(model_path, network_config, min_input_shapes, max_input_shape
     module = Module(model_path)
     module.create_inst(network_config, min_input_shapes, max_input_shapes)
     return module
+
 
 class Module:
     def __init__(self, model_path):
@@ -229,7 +912,8 @@ class Module:
         return self.tnn.GetModelOutputNames()
 
     def create_inst(self, network_config, min_input_shapes, max_input_shapes):
-        ret=Status()
+        import pytnn
+        ret=pytnn._pytnn.Status() #???????加上就报错TypeError: __init__() missing 2 required positional arguments: 'code' and 'message'
         if network_config is None:
             network_config=NetworkConfig()
             network_config.device_type=DEVICE_CUDA
@@ -252,18 +936,32 @@ class Module:
             self.input_names = list(self.instance.GetAllInputBlobs().keys())
 
     def forward(self, *inputs, rtype="list"):
+        input_mats = {}
+        # import pdb
+        # pdb.set_trace()
         if len(inputs) > 1:
             for index, value in enumerate(inputs):
-                self.instance.SetInputMat(Mat(value), MatConvertParam(), self.input_names[index])
+                input_mats[self.input_names[index]] = Mat(value)
         else:
             if isinstance(inputs[0], tuple) or isinstance(inputs[0], list):
                 for index, value in enumerate(inputs[0]):
-                    self.instance.SetInputMat(Mat(value), MatConvertParam(), self.input_names[index])
+                    input_mats[self.input_names[index]] = Mat(value)
             elif isinstance(inputs[0], dict):
                 for key, value in inputs[0].items():
-                    self.instance.SetInputMat(Mat(value), MatConvertParam(), key)
+                    # import pdb
+                    # pdb.set_trace()
+                    input_mats[key] = Mat(value)
             else:
-                self.instance.SetInputMat(Mat(inputs[0]), MatConvertParam()) 
+                input_mats[self.input_names[0]] = Mat(inputs[0])
+                
+        input_shapes = {}
+        for key, value in input_mats.items():
+            input_shapes[key] = value.GetDims()
+        self.instance.Reshape(input_shapes) 
+        
+        for key, value in input_mats.items():
+            self.instance.SetInputMat(value, MatConvertParam(), key) 
+      
         self.instance.Forward()
         output_blobs = self.instance.GetAllOutputBlobs()
         output = []
@@ -281,3 +979,5 @@ class Module:
             else:
                 output.append(output_mat_numpy)
         return output
+
+

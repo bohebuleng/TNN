@@ -16,7 +16,7 @@ import subprocess
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 def build_pytnn():
-    cmd = [os.path.join(dir_path, "build_tnntorch_linux.sh")]
+    cmd = [os.path.join(dir_path, "build_pytnn_cuda_linux.sh")]
     status_code = subprocess.run(cmd).returncode
 
     if status_code != 0:
@@ -49,7 +49,7 @@ class BdistCommand(bdist_wheel):
         build_pytnn()
         bdist_wheel.run(self)
 
-setup(name='pytnn',
+setup(name='tiacc_inference',
       setup_requires=[],
       version='0.3.0',
       cmdclass={
@@ -57,7 +57,7 @@ setup(name='pytnn',
           'bdist_wheel': BdistCommand,
       },
       zip_safe=False,
-      packages=['pytnn'],
-      package_dir={'pytnn': 'tnntorch_linux_release/lib'},
-      package_data={'pytnn': ['*.so*', '*.py']}
+      packages=['tiacc_inference'],
+      package_dir={'tiacc_inference': 'tnntorch_linux_release/lib'},
+      package_data={'tiacc_inference': ['*.so*', '*.py']}
       )

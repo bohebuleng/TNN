@@ -1,4 +1,4 @@
-import pytnn
+import tiacc_inference
 import numpy as np
 
 input=np.ones((6,3,32,320), np.float32, 'F')
@@ -13,8 +13,8 @@ input=np.ones((6,3,32,320), np.float32, 'F')
 #print(output[0])
 
 # tnnproto
-module=pytnn.load("/data/yinru/tmp/TNN/test/pytnn/tmp1")
-#module=pytnn.optimize("/data/yinru/ocrOnnx/data/models/ocrModel/inference/rec_onnx",1,0,input_shapes=['x:array.float(6*3*32*320)'], save_path="/data/yinru/tmp/TNN/test/pytnn/tmp1")
-output1=module.forward(input)
-print(output1[0])
+# module=tiacc_inference.load("./tmp1")
+module=tiacc_inference.optimize("/data/yinru/ocrOnnx/data/models/ocrModel/inference/rec_onnx",1,0,input_shapes=['x:array.float(6*3*32*320)'], save_path="./tmp1")
+#output1=module.forward(input)
+#print(output1[0])
 

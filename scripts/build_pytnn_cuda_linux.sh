@@ -10,15 +10,9 @@ PYBIND_ENABLE="ON"
 
 export CUDNN_ROOT_DIR=/usr/local/cudnn-8.1.1
 export TENSORRT_ROOT_DIR=/usr/local/TensorRT-7.2.3.4
-if [ -z $1 ];then export LIBTORCH_ROOT_DIR=`find /usr/local/ -name "libtorch-shared-1.8.1+*"`
-else
-    export LIBTORCH_ROOT_DIR=$1
-fi
 
-export LIBTORCHVISION_ROOT_DIR=`find /usr/local/ -name "libtorchvision*-0.9.1+*"`
-
-BUILD_DIR=${TNN_ROOT_PATH}/scripts/build_tnntorch_linux
-TNN_INSTALL_DIR=${TNN_ROOT_PATH}/scripts/tnntorch_linux_release
+BUILD_DIR=${TNN_ROOT_PATH}/scripts/build_pytnn_cuda_linux
+TNN_INSTALL_DIR=${TNN_ROOT_PATH}/scripts/pytnn_cuda_linux_release
 
 TNN_VERSION_PATH=$TNN_ROOT_PATH/scripts/version
 cd $TNN_VERSION_PATH
@@ -34,8 +28,6 @@ cmake ${TNN_ROOT_PATH} \
     -DTNN_CPU_ENABLE=ON \
     -DTNN_X86_ENABLE=ON \
     -DTNN_CUDA_ENABLE=ON \
-    -DTNN_TNNTORCH_ENABLE=ON \
-    -DTNN_TORCHVISION_ENABLE=${TORCHVISION_ENABLE} \
     -DTNN_PYBIND_ENABLE=${PYBIND_ENABLE} \
     -DTNN_GLIBCXX_USE_CXX11_ABI_ENABLE=OFF \
     -DTNN_TENSORRT_ENABLE=ON \
@@ -86,15 +78,6 @@ cudnn_dep_list=$( ldd libTNN.so | awk '{if (match($3, "cudnn")){ print $3}}' )
 cp $cudnn_dep_list ${TNN_INSTALL_DIR}/lib/
 cp ${CUDNN_ROOT_DIR}/lib64/libcudnn_cnn_infer.so.8 ${TNN_INSTALL_DIR}/lib/
 cp ${CUDNN_ROOT_DIR}/lib64/libcudnn_ops_infer.so.8 ${TNN_INSTALL_DIR}/lib/
-
-# torch
-torch_dep_list=$( ldd libTNN.so | awk '{if (match($3,"libtorch-shared")){ print $3}}' )
-cp $torch_dep_list ${TNN_INSTALL_DIR}/lib/
-
-# torchvision libs
-if [ "$TORCHVISION_ENABLE" = "ON" ]; then
-    cp -d ${LIBTORCHVISION_ROOT_DIR}/lib/libtorchvision.so ${TNN_INSTALL_DIR}/lib/libtorchvision.so
-fi
 
 if [ "$PYBIND_ENABLE" = "ON" ]; then
     cp -d _pytnn.*.so ${TNN_INSTALL_DIR}/lib/

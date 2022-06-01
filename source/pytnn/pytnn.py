@@ -758,15 +758,12 @@ def optimize(
         if "tnnproto" in file:
             tnnproto_name = file
             flag1 = True
-            print(tnnproto_name)
         elif "tnnmodel" in file:
             tnnmodel_name = file
             flag2 = True
-            print(tnnmodel_name)
         elif "onnx" in file:
             onnx_name = file
             flag3 = True
-            print(onnx_name)
     if flag1 == False or flag2 == False or flag3 == False:
         print("There is no tnnmodel or onnx in your path.")
         return
@@ -798,7 +795,6 @@ def optimize(
     config_dict["device_type"] = "cuda" if device_type == 0 else "x86"
     config_dict["cache_path"] = save_path
     network_config = _parse_network_config(config_dict)
-    print(config_dict)
     module.create_inst(network_config, min_input_shapes, max_input_shapes)
     # save input info as pickle file in save_dir
     a_dict = {'min_input_shapes':min_input_shapes, 'max_input_shapes':max_input_shapes, 'types':types, 'precision':config_dict["precision"], 'device_type':device_type}
@@ -818,7 +814,6 @@ def optimize(
         output=module.forward(test_data)
     time_1=time.time()
     time_tnn = (time_1-time_0)/N*1000.0
-    print("[TNN]", N, "iter average time = ", time_tnn, " (ms).")
     # print(output[0])
     # onnxruntime
     ort_sess = ort.InferenceSession(input_model + '/' + onnx_name)
@@ -828,8 +823,10 @@ def optimize(
         outputs_onnx = ort_sess.run(None, test_data)
     time_3 = time.time()
     time_onnx = (time_3-time_2)/N*1000.0
-    print("[ONNX]", N, "iter average time = ", time_onnx, " (ms).")
-    print('acc:', time_onnx/time_tnn)
+    print('"optimization_result": {')
+    print('    "optimized_time:"', "{:.2f}".format(time_tnn), 'ms,')
+    print('    "baseline_time:"', "{:.2f}".format(time_onnx), "ms,")
+    print('    "speed_up:"', "{:.2f}".format(time_onnx/time_tnn),"}")
     return module
 
 def load(model_path):
@@ -842,14 +839,11 @@ def load(model_path):
         if "tnnproto" in file:
             tnnproto_name = file
             flag1 = True
-            print(tnnproto_name)
         elif "tnnmodel" in file:
             tnnmodel_name = file
             flag2 = True
-            print(tnnmodel_name)
         elif "pickle" in file:
             input_info = file
-            print(input_info)
             flag3 = True
     if flag1 == False or flag2 == False or flag3 == False:
         print("There is no tnnmodel or input info in your path.")
@@ -867,8 +861,6 @@ def load(model_path):
     c = pickle.load(f)
     min_input_shapes = c["min_input_shapes"]
     max_input_shapes = c["max_input_shapes"]
-    print(c["precision"])
-    print(c["device_type"])
     config_dict["precision"] = c["precision"]
     config_dict["device_type"] = "cuda" if c["device_type"] == 0 else "x86"
     f.close()

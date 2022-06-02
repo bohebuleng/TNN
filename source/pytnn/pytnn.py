@@ -1,4 +1,8 @@
-# import torch.nn as nn
+#new import for pytnn -> tiacc
+import tiacc_inference as pytnn
+import pytnn
+from pytnn import *
+# original import
 from pytnn._pytnn import *
 from typing import List, Dict, Any
 import numpy
@@ -7,7 +11,6 @@ import genericpath
 from subprocess import getoutput
 #from tkinter.messagebox import NO
 from typing import *
-#import torch
 import sys
 import GPUtil
 import json
@@ -261,8 +264,6 @@ def gen_shape_from_data(data):
     min_input_shapes, max_input_shapes, status = {}, {}, Status(StatusCode.TIACC_OK, '')
     types = {}
     # input_name = list(min_input_shape.keys())
-    # import pdb
-    # pdb.set_trace()
     # for ii in range(len(data)):
     #     name = 
     #     shape, type, rtn = convert_data_to_shape(data[ii], name)
@@ -614,8 +615,6 @@ def iterate_name_v2(name: str, inputs, val):
                 return None, status
             return inputs, status
         else:
-            # import pdb
-            # pdb.set_trace()
             res = re.match('^\[.*?\]', name)
             print(res)
             print(name)
@@ -646,8 +645,6 @@ def convert_shape_to_data_v2(input_shapes:dict, types:dict, format:dict, device:
     status = Status(StatusCode.TIACC_OK, '')
     # inputs = []
     inputs = {}
-    # import pdb
-    # pdb.set_trace()
     for name, val in input_shapes.items():
         import copy
         ##tmp_name = name
@@ -929,8 +926,6 @@ class Module:
 
     def forward(self, *inputs, rtype="list"):
         input_mats = {}
-        # import pdb
-        # pdb.set_trace()
         if len(inputs) > 1:
             for index, value in enumerate(inputs):
                 input_mats[self.input_names[index]] = Mat(value)
@@ -940,8 +935,6 @@ class Module:
                     input_mats[self.input_names[index]] = Mat(value)
             elif isinstance(inputs[0], dict):
                 for key, value in inputs[0].items():
-                    # import pdb
-                    # pdb.set_trace()
                     input_mats[key] = Mat(value)
             else:
                 input_mats[self.input_names[0]] = Mat(inputs[0])

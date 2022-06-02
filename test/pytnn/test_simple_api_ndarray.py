@@ -1,7 +1,9 @@
-import tiacc_inference
+import pytnn
 import numpy as np
+import torch
 
 input=np.ones((6,3,32,320), np.float32, 'F')
+#input = torch.rand(6,3,32,320)
 
 # torchscript 
 #module=pytnn.load("../../model/SqueezeNet/squeezenet_v1.1.ts", {"input_shapes":[ {"min": [1,3,224,224], "max": [1,3,224,224]} ], "network_type": pytnn.NETWORK_TYPE_TNNTORCH, "device_type": pytnn.DEVICE_CUDA})
@@ -13,8 +15,8 @@ input=np.ones((6,3,32,320), np.float32, 'F')
 #print(output[0])
 
 # tnnproto
-# module=tiacc_inference.load("./tmp1")
-module=tiacc_inference.optimize("/data/yinru/ocrOnnx/data/models/ocrModel/inference/rec_onnx",1,0,input_shapes=['x:array.float(6*3*32*320)'], save_path="./tmp1")
+#module=pytnn.load("./tmp1")
+module=pytnn.optimize("/data/yinru/ocrOnnx/data/models/ocrModel/inference/rec_onnx",1,0,input_shapes=['x:array.float(1*3*32*10,6*3*32*320)'], save_path="./tmp1")
 #output1=module.forward(input)
-#print(output1[0])
+#print(output1)
 

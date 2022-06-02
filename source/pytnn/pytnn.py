@@ -1,9 +1,4 @@
-#new import for pytnn -> tiacc
-#import tiacc_inference as pytnn
-#import pytnn
-#from pytnn import *
-# original import
-from pytnn._pytnn import *
+from tiacc_inference._pytnn import *
 from typing import List, Dict, Any
 import numpy
 import pickle
@@ -901,8 +896,8 @@ class Module:
         return self.tnn.GetModelOutputNames()
 
     def create_inst(self, network_config, min_input_shapes, max_input_shapes):
-        import pytnn
-        ret=pytnn._pytnn.Status() #???????加上就报错TypeError: __init__() missing 2 required positional arguments: 'code' and 'message'
+        import tiacc_inference
+        ret=tiacc_inference._pytnn.Status() #???????加上就报错TypeError: __init__() missing 2 required positional arguments: 'code' and 'message'
         if network_config is None:
             network_config=NetworkConfig()
             network_config.device_type=DEVICE_CUDA

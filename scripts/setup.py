@@ -49,7 +49,7 @@ class BdistCommand(bdist_wheel):
         build_pytnn()
         bdist_wheel.run(self)
 
-setup(name='tiacc_inference',
+setup(name='pytnn',
       setup_requires=[],
       version='0.3.0',
       cmdclass={
@@ -57,7 +57,7 @@ setup(name='tiacc_inference',
           'bdist_wheel': BdistCommand,
       },
       zip_safe=False,
-      packages=['tiacc_inference'],
-      package_dir={'tiacc_inference': 'tnntorch_linux_release/lib'},
-      package_data={'tiacc_inference': ['*.so*', '*.py']}
+      packages=['pytnn'],
+      package_dir={'pytnn': 'pytnn_cuda_linux_release/lib'},
+      package_data={'pytnn': ['*.so*', '*.py']}
       )

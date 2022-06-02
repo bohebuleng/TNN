@@ -1,7 +1,7 @@
 #new import for pytnn -> tiacc
-import tiacc_inference as pytnn
-import pytnn
-from pytnn import *
+#import tiacc_inference as pytnn
+#import pytnn
+#from pytnn import *
 # original import
 from pytnn._pytnn import *
 from typing import List, Dict, Any

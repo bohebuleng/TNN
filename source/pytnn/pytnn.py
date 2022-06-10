@@ -1025,23 +1025,21 @@ class Module:
                 input_mats[self.input_names[index]] = Mat(value)
         else:
             if isinstance(inputs[0], tuple) or isinstance(inputs[0], list):
-                if type(inputs[0][0]) == torch.Tensor:
-                    if (inputs[0][0].is_cuda) == True:
-                        tensor_gpu_flag = True
-                    tensor_flag = True
-                    for index, value in enumerate(inputs[0]):
+                for index, value in enumerate(inputs[0]):
+                    if type(value) == torch.Tensor:
+                        if (value.is_cuda) == True:
+                            tensor_gpu_flag = True
+                        tensor_flag = True
                         value = value.cpu().numpy()
-                        input_mats[self.input_names[index]] = Mat(value)
+                    input_mats[self.input_names[index]] = Mat(value)
             elif isinstance(inputs[0], dict):
-                data = inputs[0]
-                if type(data) == torch.Tensor:
-                    if (data.is_cuda) == True:
-                        tensor_gpu_flag = True
-                    tensor_flag = True
-                    for key, value in inputs[0].items():
-                        tmp_value = value.cpu()
-                        value = tmp_value.numpy()
-                        input_mats[key] = Mat(value)
+                for key, value in inputs[0].items():
+                    if type(value) == torch.Tensor:
+                        if (value.is_cuda) == True:
+                            tensor_gpu_flag = True
+                        tensor_flag = True
+                        value = value.cpu().numpy()
+                    input_mats[key] = Mat(value)
             else:
                 data = inputs[0]
                 if type(data) == torch.Tensor:

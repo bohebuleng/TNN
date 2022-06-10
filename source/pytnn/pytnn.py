@@ -894,6 +894,8 @@ def optimize(
         optimized_time = time_tnn
     except:
         print("Error: input model incompatible with test data")
+        report['status'] = Status(StatusCode.TIACC_ERR,
+                                  'Error: input model incompatible with test data!').get_dict()
         report['optimization_result']['baseline_time']  = None
         report['optimization_result']['baseline_qps']   = None
         report['optimization_result']['optimized_time'] = None

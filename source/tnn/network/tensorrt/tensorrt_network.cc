@@ -24,6 +24,7 @@
 #include "tnn/utils/exclusive_file.h"
 #include "tnn/utils/dims_utils.h"
 #include "tnn/utils/md5.h"
+#include "tnn/utils/string_utils_inner.h"
 #include "tnn/device/cuda/cuda_macro.h"
 #include "tnn/utils/blob_dump_utils.h"
 #include "tnn/utils/data_type_utils.h"
@@ -815,7 +816,9 @@ std::string TensorRTNetwork_::GetCacheFileName(std::vector<std::string> params_m
         + "-" + GetTrtVersion() + GetCudaVersion()
         + "-" + const_folder + ".cache";
 
-    if(cache_path.empty() || cache_path.compare(CACHE_MEMORY_TAG) == 0) {
+    if(EndsWith(cache_path, ".cache")) {
+        return cache_path;
+    } else if(cache_path.empty() || cache_path.compare(CACHE_MEMORY_TAG) == 0) {
         return cache_file_name;
     } else {
         return cache_path + "/" + cache_file_name;

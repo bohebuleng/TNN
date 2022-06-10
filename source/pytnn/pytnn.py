@@ -917,6 +917,7 @@ def load(model_path):
     flag1 = False
     flag2 = False
     flag3 = False
+    cache_file = ""
     for file in dirs:
         if "optimize.tnnproto" in file:
             tnnproto_name = file
@@ -927,6 +928,8 @@ def load(model_path):
         elif "pickle" in file:
             input_info = file
             flag3 = True
+        elif file.endswith(".cache"):
+            cache_file = file
     if flag1 == False or flag2 == False or flag3 == False:
         print("There is no optimized tnnmodel or input info in your path.")
         return
@@ -934,7 +937,7 @@ def load(model_path):
     # input_names = module.parsed_input_names()
     min_input_shapes = None
     max_input_shapes = None
-    config_dict["cache_path"] = model_path
+    config_dict["cache_path"] = model_path + "/" + cache_file
     # if "input_names" in config_dict:
     #     input_names = config_dict["input_names"]
     # if "input_shapes" in config_dict:

@@ -1,4 +1,5 @@
 from tiacc_inference._pytnn import *
+#from pytnn._pytnn import *
 from typing import List, Dict, Any
 import numpy
 import pickle
@@ -6,6 +7,7 @@ import genericpath
 from subprocess import getoutput
 #from tkinter.messagebox import NO
 from typing import *
+import torch
 import sys
 import GPUtil
 import json
@@ -15,15 +17,8 @@ import os
 from threading import Lock
 import hashlib
 import onnxruntime as ort
-# from tiacc_inference._tiacc_inference import *
 import time
 import shutil
-# from tiacc_inference.status import StatusCode, Status
-
-
-# from tiacc_inference.tiacc_torchscript_inference import optimize_torchscript_module
-# from tiacc_inference.utils import gen_shape_from_data, gen_report
-# from tiacc_inference.status import StatusCode, Status
 
 def _supported_input_size_type(input_size) -> bool:
     if isinstance(input_size, tuple):
@@ -255,13 +250,8 @@ def convert_data_to_shape(obj, pre):
         return None, None, status
 
 def gen_shape_from_data(data):
-# def gen_shape_from_data(data,input_name):
     min_input_shapes, max_input_shapes, status = {}, {}, Status(StatusCode.TIACC_OK, '')
     types = {}
-    # input_name = list(min_input_shape.keys())
-    # for ii in range(len(data)):
-    #     name = 
-    #     shape, type, rtn = convert_data_to_shape(data[ii], name)
     for ii in range(len(data)):
         name = "input_" + str(ii)
         shape, type, rtn = convert_data_to_shape(data[ii], name)
@@ -274,28 +264,38 @@ def gen_shape_from_data(data):
         types = {**types, **type}
     return min_input_shapes, max_input_shapes, types, status
 
-# infer_framework_map = dict()
-# try:
-#     import torch
-# except ModuleNotFoundError:
-#     infer_framework_map['torch'] = False
-# else:
-#     infer_framework_map['torch'] = True
+onnx_framework_map = dict()
+try:
+    import onnxruntime
+except ModuleNotFoundError:
+    onnx_framework_map['onnx'] = False
+else:
+    onnx_framework_map['onnx'] = True
 
 def gen_report(test_shape):
     # generate report info
     software_env = []
-    # if infer_framework_map['torch']:
-    #     torch_version = ""
-    #     try:
-    #         torch_version = torch.__version__.split('+')[0]
-    #     except:
-    #         torch_version = ""
-    #     software_env.append({"software_environment": "pytorch", "version": torch_version})
-    software_env.append({"software_environment": "cuda", "version": GetCUDAVersion()})
-    software_env.append({"software_envrionment": "cudnn", "version": GetCudnnVersion()})
-    software_env.append({"software_environment": "TensorRT", "version": GetTensorRTVersion()})
-
+    if infer_framework_map['torch']:
+        torch_version = ""
+        try:
+            torch_version = torch.__version__.split('+')[0]
+        except:
+            torch_version = ""
+        software_env.append({"software_environment": "pytorch", "version": torch_version})
+    if onnx_framework_map['onnx']:
+        onnx_version = ""
+        try:
+            onnx_version = onnxruntime.__version__.split('+')[0]
+        except:
+            onnx_version = ""
+        software_env.append({"software_environment": "onnx", "version": onnx_version})
+    # software_env.append({"software_environment": "cuda", "version": GetCUDAVersion()})
+    # software_env.append({"software_envrionment": "cudnn", "version": GetCudnnVersion()})
+    # software_env.append({"software_environment": "TensorRT", "version": GetTensorRTVersion()})
+    software_env.append({"software_environment": "cuda", "version": "11.1"})
+    software_env.append({"software_envrionment": "cudnn", "version": "8.3.2"})
+    software_env.append({"software_environment": "TensorRT", "version": "8.4.0.6"})
+    
     hardware_env = {}
     hardware_env['device_type'] = "gpu"
     gpu_name = ""
@@ -342,7 +342,6 @@ class Status:
     def __init__(self, code=StatusCode.TIACC_OK, message=''):
         self.code = code
         self.message = message
-#这个status和pytnn原本的status冲突？？？
     def get_dict(self):
         return {'code': self.code, 'message': self.message}
 
@@ -407,7 +406,6 @@ def convert_to_tnn_name(obj, pre) -> dict:
     status = Status(StatusCode.TIACC_OK, '')
     min_shapes, max_shapes, types = {}, {}, {}
     if isinstance(obj, dict):
-        # print("dict")
         # filter keyword 'range'
         key = list(obj.keys())[0]
         if re.search(type_pattern, key) or re.search(range_pattern, key):
@@ -587,12 +585,11 @@ def build_val(shape, type, format, device):
 def iterate_name_v2(name: str, inputs, val):
     status = Status(StatusCode.TIACC_OK, '')
 
-    if (len(name) == 0): #???why len(name)==0是正常的
+    if (len(name) == 0): 
         return val, status
     
     if (re.match('^\[', name) != None):
         res = re.match('^\[\d+\]', name)
-        # res = re.match('^\[\D+\]',name)
         if (res != None):
             # list
             index = int(name[res.start()+1:res.end()-1])
@@ -638,24 +635,36 @@ def iterate_name_v2(name: str, inputs, val):
         
 def convert_shape_to_data_v2(input_shapes:dict, types:dict, format:dict, device:dict):
     status = Status(StatusCode.TIACC_OK, '')
-    # inputs = []
+    # for input_name, format_val in format.items():#???
+    #     if format_val = tensor: 
+    #         inputs = []
+    #         for name, val in input_shapes.items():
+    #             import copy
+    #             tmp_name = copy.deepcopy(name)
+    #             if (re.match('^input_', tmp_name)):
+    #                 tmp_name = tmp_name.lstrip('input_')
+    #                 mat = re.match('^\d+', tmp_name)
+    #                 name_list = list(tmp_name)
+    #                 name_list.insert(mat.end(), ']')
+    #                 name_list.insert(mat.start(), '[')
+    #                 tmp_name = ''.join(name_list)
+    #             else:
+    #                 print("Input name format error.")
+    #                 status = Status(StatusCode.TIACC_ERR, 'Input name format error.')
+    #                 return None, status
+    #             value = build_val(val, types[name], format[name], device)
+    #             inputs, status = iterate_name_v2(tmp_name, inputs, value)
+    #     elif format_val = array:
+    #         inputs = {}
+    #         for name, val in input_shapes.items():
+    #             inputs[name] = value
+    #             value = build_val(val, types[name], format[name], device)
+    # return inputs, status
     inputs = {}
     for name, val in input_shapes.items():
         import copy
-        ##tmp_name = name
-        # tmp_name = copy.deepcopy(name)
-        # tmp_name = tmp_name.lstrip('x') #???剩下了0:shape
-        # mat = re.match('^\d+', tmp_name)
-        ## mat = re.match('^\D+', tmp_name)
-        # name_list = list(tmp_name)
-        # name_list.insert(mat.end(), ']')
-        # name_list.insert(mat.start(), '[')
-        # tmp_name = ''.join(name_list)
         value = build_val(val, types[name], format[name], device)
         inputs[name] = value
-        # torch tensor inputs
-        # inputs, status = iterate_name_v2(tmp_name, inputs, value)
-        # sth
     return inputs, status
 
 
@@ -764,24 +773,62 @@ def optimize(
     types = {}
     if len(input_shapes) > 0:
         min_input_shapes, max_input_shapes, types, formats, status = seperate_shape_v2(input_shapes)
+        if status.code != StatusCode.TIACC_OK:
+            report = gen_report('')
+            report['status'] = status.get_dict()
+            report = json.dumps(report, indent=4, separators=(',', ': '))
+            return (None, report)
     elif len(test_data) > 0:
         min_input_shapes, max_input_shapes, types, status = gen_shape_from_data(test_data,list(min_input_shapes.keys()))
+        if status.code != StatusCode.TIACC_OK:
+            report = gen_report('')
+            report['status'] = status.get_dict()
+            report = json.dumps(report, indent=4, separators=(',', ': '))
+            return (None, report)
     else:
-        print("Error: At least one between input_shapes and test_data should be provided!")
-        exit(0)
+        report = gen_report('')
+        report['status'] = Status(StatusCode.TIACC_ERR,
+                                  'Error: At least one between input_shapes and test_data should be provieded!').get_dict()
+        report = json.dumps(report, indent=4, separators=(',', ': '))
+        return (None, report)
+    report = {}
 
     # set test_data
     if len(test_data) == 0:
         # test_data, status = convert_shape_to_data(input_shapes, device_type)
         test_data, status = convert_shape_to_data_v2(max_input_shapes, types, formats, device_type)
+        report = gen_report(max_input_shapes)
+        report['test_data_info']['test_data_source'] = 'tiacc provided'
+        if status.code != StatusCode.TIACC_OK:
+            report['status'] = status.get_dict()
+            report = json.dumps(report, indent=4, separators=(',', ': '))
+            return (None, report)
     else:
         real_input_shape_res  = gen_shape_from_data(test_data)
         status = real_input_shape_res[3]
+        if status.code != StatusCode.TIACC_OK:
+            report = gen_report('')
+            report['status'] = status.get_dict()
+            report = json.dumps(report, indent=4, separators=(',', ': '))
+            return (None, report)
+        report = gen_report(real_input_shape_res[0])
     # print(min_input_shapes)
     # print(max_input_shapes)
     # print(types)
     # print(formats)
     # print(test_data)
+    report['test_data_info']['test_data_type'] = str(types)
+
+    if device_type == 0:
+        report['hardware_environment']['device_type'] = 'GPU'
+    else:
+        report['hardware_environment']['device_type'] = 'CPU'
+        try:
+            cpu_name = get_cpu_name()
+        except:
+            cpu_name = ''
+        report['hardware_environment']['microarchitecture'] = cpu_name
+
     config_dict={}
     config_dict["precision"] = "fp32" if optimization_level == 0 else "fp16"
     config_dict["device_type"] = "cuda" if device_type == 0 else "x86"
@@ -789,37 +836,80 @@ def optimize(
     network_config = _parse_network_config(config_dict)
     module.create_inst(network_config, min_input_shapes, max_input_shapes)
     # save input info as pickle file in save_dir
-    a_dict = {'min_input_shapes':min_input_shapes, 'max_input_shapes':max_input_shapes, 'types':types, 'precision':config_dict["precision"], 'device_type':device_type}
+    a_dict = {'min_input_shapes':min_input_shapes, 'max_input_shapes':max_input_shapes, 'types':types, 'formats':formats, 'precision':config_dict["precision"], 'device_type':device_type}
     file = open(save_path + '/' + 'input_info.pickle','wb')
     pickle.dump(a_dict, file)
     file.close()
     # save tnnproto, tnnmodel and cache in save_dir
     shutil.copyfile(input_model + '/' + tnnproto_name, save_path + '/' + tnnproto_name[:-8] + 'optimize.tnnproto' )
     shutil.copyfile(input_model + '/' + tnnmodel_name, save_path + '/' + tnnproto_name[:-8] + 'optimize.tnnmodel' )
-    # tnn runtime
-    N = 100
-    output=[]
-    timelist = []
-    output=module.forward(test_data)
-    time_0=time.time()
-    for i in range(N):
+    # # tnn runtime
+    # N = 100
+    # output=[]
+    # output=module.forward(test_data)
+    # time_0=time.time()
+    # for i in range(N):
+    #     output=module.forward(test_data)
+    # time_1=time.time()
+    # time_tnn = (time_1-time_0)/N*1000.0
+    # # onnxruntime
+    # test_data_onnx, status = convert_shape_to_data_v2(max_input_shapes, types, formats, device_type)
+    # for name, val in test_data_onnx.items():
+    #     if type(val) == torch.Tensor:
+    #         value = val.cpu().numpy()
+    #         test_data_onnx[name]=value
+    # ort_sess = ort.InferenceSession(input_model + '/' + onnx_name)
+    # # outputs_onnx = ort_sess.run(None, test_data_onnx)
+    # time_2 = time.time()
+    # for i in range(N):
+    #     outputs_onnx = ort_sess.run(None, test_data_onnx)
+    # time_3 = time.time()
+    # time_onnx = (time_3-time_2)/N*1000.0
+
+    try:
+        # tnn runtime
+        N = 30
+        output=[]
         output=module.forward(test_data)
-    time_1=time.time()
-    time_tnn = (time_1-time_0)/N*1000.0
-    # print(output[0])
-    # onnxruntime
-    ort_sess = ort.InferenceSession(input_model + '/' + onnx_name)
-    outputs_onnx = ort_sess.run(None, test_data)
-    time_2 = time.time()
-    for i in range(N):
-        outputs_onnx = ort_sess.run(None, test_data)
-    time_3 = time.time()
-    time_onnx = (time_3-time_2)/N*1000.0
-    print('"optimization_result": {')
-    print('    "optimized_time:"', "{:.2f}".format(time_tnn), 'ms,')
-    print('    "baseline_time:"', "{:.2f}".format(time_onnx), "ms,")
-    print('    "speed_up:"', "{:.2f}".format(time_onnx/time_tnn),"}")
-    return module
+        time_0=time.time()
+        for i in range(N):
+            output=module.forward(test_data)
+        time_1=time.time()
+        time_tnn = (time_1-time_0)/N*1000.0
+        # onnxruntime
+        test_data_onnx, status = convert_shape_to_data_v2(max_input_shapes, types, formats, device_type)
+        # test_data_onnx=test_data
+        for name, val in test_data_onnx.items():
+            if type(val) == torch.Tensor:
+                value = val.cpu().numpy()
+                test_data_onnx[name]=value
+        ort_sess = ort.InferenceSession(input_model + '/' + onnx_name)
+        outputs_onnx = ort_sess.run(None, test_data_onnx)
+        time_2 = time.time()
+        for i in range(N):
+            outputs_onnx = ort_sess.run(None, test_data_onnx)
+        time_3 = time.time()
+        time_onnx = (time_3-time_2)/N*1000.0
+        baseline_time = time_onnx
+        optimized_time = time_tnn
+    except:
+        print("Error: input model incompatible with test data")
+        report['optimization_result']['baseline_time']  = None
+        report['optimization_result']['baseline_qps']   = None
+        report['optimization_result']['optimized_time'] = None
+        report['optimization_result']['optimized_qps']  = None
+        report['optimization_result']['speed_up']       = None 
+    else:
+        report['optimization_result']['baseline_time'] = "%.2f" % baseline_time + "ms"
+        report['optimization_result']['baseline_qps']  = "%.2f" % (1000 / baseline_time)
+        report['optimization_result']['optimized_time'] = "%.2f" % optimized_time + "ms"
+        report['optimization_result']['optimized_qps']  = "%.2f" % (1000 / optimized_time)
+        report['optimization_result']['speed_up'] = "%.2f" % (baseline_time / optimized_time) 
+        
+    report = json.dumps(report, indent=4, separators=(',', ': '))
+    print(report)
+    # return (py_opt_model, report)
+    return (module, report)
 
 def load(model_path):
     config_dict = {}
@@ -828,17 +918,17 @@ def load(model_path):
     flag2 = False
     flag3 = False
     for file in dirs:
-        if "tnnproto" in file:
+        if "optimize.tnnproto" in file:
             tnnproto_name = file
             flag1 = True
-        elif "tnnmodel" in file:
+        elif "optimize.tnnmodel" in file:
             tnnmodel_name = file
             flag2 = True
         elif "pickle" in file:
             input_info = file
             flag3 = True
     if flag1 == False or flag2 == False or flag3 == False:
-        print("There is no tnnmodel or input info in your path.")
+        print("There is no optimized tnnmodel or input info in your path.")
         return
     module = Module(model_path + '/' + tnnproto_name)
     # input_names = module.parsed_input_names()
@@ -897,7 +987,9 @@ class Module:
 
     def create_inst(self, network_config, min_input_shapes, max_input_shapes):
         import tiacc_inference
-        ret=tiacc_inference._pytnn.Status() #???????加上就报错TypeError: __init__() missing 2 required positional arguments: 'code' and 'message'
+        ret=tiacc_inference._pytnn.Status()
+        #import pytnn
+        #ret=pytnn._pytnn.Status()
         if network_config is None:
             network_config=NetworkConfig()
             network_config.device_type=DEVICE_CUDA
@@ -921,18 +1013,43 @@ class Module:
 
     def forward(self, *inputs, rtype="list"):
         input_mats = {}
+        tensor_flag = False
+        tensor_gpu_flag = False
         if len(inputs) > 1:
             for index, value in enumerate(inputs):
+                if type(value) == torch.Tensor:
+                    if (value.is_cuda) == True:
+                        tensor_gpu_flag = True
+                    tensor_flag = True
+                    value = value.cpu().numpy()
                 input_mats[self.input_names[index]] = Mat(value)
         else:
             if isinstance(inputs[0], tuple) or isinstance(inputs[0], list):
-                for index, value in enumerate(inputs[0]):
-                    input_mats[self.input_names[index]] = Mat(value)
+                if type(inputs[0][0]) == torch.Tensor:
+                    if (inputs[0][0].is_cuda) == True:
+                        tensor_gpu_flag = True
+                    tensor_flag = True
+                    for index, value in enumerate(inputs[0]):
+                        value = value.cpu().numpy()
+                        input_mats[self.input_names[index]] = Mat(value)
             elif isinstance(inputs[0], dict):
-                for key, value in inputs[0].items():
-                    input_mats[key] = Mat(value)
+                data = inputs[0]
+                if type(data) == torch.Tensor:
+                    if (data.is_cuda) == True:
+                        tensor_gpu_flag = True
+                    tensor_flag = True
+                    for key, value in inputs[0].items():
+                        tmp_value = value.cpu()
+                        value = tmp_value.numpy()
+                        input_mats[key] = Mat(value)
             else:
-                input_mats[self.input_names[0]] = Mat(inputs[0])
+                data = inputs[0]
+                if type(data) == torch.Tensor:
+                    if (data.is_cuda) == True:
+                        tensor_gpu_flag = True
+                    tensor_flag = True
+                    data = data.cpu().numpy()
+                input_mats[self.input_names[0]] = Mat(data)
                 
         input_shapes = {}
         for key, value in input_mats.items():
@@ -954,10 +1071,15 @@ class Module:
         for output_name in self.output_names:
             output_mat=self.instance.GetOutputMat(MatConvertParam(), output_name, DEVICE_NAIVE, NCHW_FLOAT)
             output_mat_numpy=numpy.array(output_mat, copy=False)
-            if is_dict:
-                output[key] = output_mat_numpy
+            if tensor_flag == True:
+                output_mat_final = torch.from_numpy(output_mat_numpy)
+                if tensor_gpu_flag == True:
+                    output_mat_final = output_mat_final.cuda()
             else:
-                output.append(output_mat_numpy)
+                output_mat_final = output_mat_numpy
+            if is_dict:
+                output[key] = output_mat_final
+            else:
+                output.append(output_mat_final)
+        
         return output
-
-

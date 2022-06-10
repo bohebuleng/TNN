@@ -16,7 +16,7 @@ import subprocess
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 def build_pytnn():
-    cmd = [os.path.join(dir_path, "build_pytnn_cuda_linux.sh")]
+    cmd = [os.path.join(dir_path, "build_tnntorch_linux.sh")]
     status_code = subprocess.run(cmd).returncode
 
     if status_code != 0:
@@ -58,6 +58,6 @@ setup(name='tiacc_inference',
       },
       zip_safe=False,
       packages=['tiacc_inference'],
-      package_dir={'tiacc_inference': 'pytnn_cuda_linux_release/lib'},
+      package_dir={'tiacc_inference': 'tnntorch_linux_release/lib'},
       package_data={'tiacc_inference': ['*.so*', '*.py']}
       )

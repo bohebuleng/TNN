@@ -12,9 +12,6 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-#ifndef TNN_SOURCE_TNN_UTILS_STRING_UTILS_INNER_H_
-#define TNN_SOURCE_TNN_UTILS_STRING_UTILS_INNER_H_
-
 #include <sstream>
 #include <string>
 #include "tnn/core/macro.h"
@@ -22,23 +19,11 @@
 
 namespace TNN_NS {
 
-template <typename T>
-std::string ToString(T value) {
-    std::ostringstream os;
-    os << value;
-    return os.str();
+bool EndsWith(const std::string& str, const std::string suffix) {
+    if (suffix.length() > str.length()) {
+        return false;
+    }
+    return (str.rfind(suffix) == (str.length() - suffix.length()));
 }
 
-template <>
-std::string ToString<float>(float value);
-
-bool EndsWith(const std::string& str, const std::string suffix);
-//     if (suffix.length() > str.length()) { 
-//         return false; 
-//     }
-//     return (str.rfind(suffix) == (str.length() - suffix.length()));
-// }
-
 }  // namespace TNN_NS
-
-#endif  // TNN_SOURCE_TNN_UTILS_STRING_UTILS_INNER_H_

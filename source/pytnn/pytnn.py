@@ -19,6 +19,8 @@ import hashlib
 import onnxruntime as ort
 import time
 import shutil
+import torch.nn as nn
+import torch.nn.functional as F
 
 def _supported_input_size_type(input_size) -> bool:
     if isinstance(input_size, tuple):
@@ -965,8 +967,9 @@ def load_raw_range(model_path, network_config, min_input_shapes, max_input_shape
     return module
 
 
-class Module:
+class Module(nn.Module):
     def __init__(self, model_path):
+        super(Module,self).__init__()
         self.model_path = model_path
         self.tnn=TNN()
         self.model_config=ModelConfig()

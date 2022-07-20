@@ -1,3 +1,4 @@
+import onnxruntime as ort
 from tiacc_inference._pytnn import *
 #from pytnn._pytnn import *
 from typing import List, Dict, Any
@@ -16,11 +17,9 @@ import copy
 import os
 from threading import Lock
 import hashlib
-import onnxruntime as ort
+#import onnxruntime as ort
 import time
 import shutil
-import torch.nn as nn
-import torch.nn.functional as F
 
 def _supported_input_size_type(input_size) -> bool:
     if isinstance(input_size, tuple):
@@ -758,13 +757,13 @@ def optimize(
     flag2 = False
     flag3 = False
     for file in dirs:
-        if "tnnproto" in file:
+        if file.endswith("tnnproto"):
             tnnproto_name = file
             flag1 = True
-        elif "tnnmodel" in file:
+        elif file.endswith("tnnmodel"):
             tnnmodel_name = file
             flag2 = True
-        elif "onnx" in file:
+        elif file.endswith("onnx"):
             onnx_name = file
             flag3 = True
     if flag1 == False or flag2 == False or flag3 == False:
@@ -870,9 +869,12 @@ def optimize(
 
     try:
         # tnn runtime
-        N = 30
+        N = 50
         output=[]
         output=module.forward(test_data)
+        # warm up
+        for i in range(30):
+            module.forward(test_data)
         time_0=time.time()
         for i in range(N):
             output=module.forward(test_data)
@@ -885,8 +887,11 @@ def optimize(
             if type(val) == torch.Tensor:
                 value = val.cpu().numpy()
                 test_data_onnx[name]=value
-        ort_sess = ort.InferenceSession(input_model + '/' + onnx_name)
+        ort_sess = ort.InferenceSession(input_model + '/' + onnx_name, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
         outputs_onnx = ort_sess.run(None, test_data_onnx)
+        # warm up
+        for i in range(30):
+            ort_sess.run(None, test_data_onnx)
         time_2 = time.time()
         for i in range(N):
             outputs_onnx = ort_sess.run(None, test_data_onnx)
@@ -923,13 +928,13 @@ def load(model_path):
     flag3 = False
     cache_file = ""
     for file in dirs:
-        if "optimize.tnnproto" in file:
+        if file.endswith("optimize.tnnproto"):
             tnnproto_name = file
             flag1 = True
-        elif "optimize.tnnmodel" in file:
+        elif file.endswith("optimize.tnnmodel"):
             tnnmodel_name = file
             flag2 = True
-        elif "pickle" in file:
+        elif file.endswith("pickle"):
             input_info = file
             flag3 = True
         elif file.endswith(".cache"):
@@ -967,9 +972,8 @@ def load_raw_range(model_path, network_config, min_input_shapes, max_input_shape
     return module
 
 
-class Module(nn.Module):
+class Module:
     def __init__(self, model_path):
-        super(Module,self).__init__()
         self.model_path = model_path
         self.tnn=TNN()
         self.model_config=ModelConfig()
@@ -998,6 +1002,8 @@ class Module(nn.Module):
         ret=tiacc_inference._pytnn.Status()
         #import pytnn
         #ret=pytnn._pytnn.Status()
+        self.min_input_shapes = min_input_shapes
+        self.max_input_shapes = max_input_shapes
         if network_config is None:
             network_config=NetworkConfig()
             network_config.device_type=DEVICE_CUDA
@@ -1020,6 +1026,7 @@ class Module(nn.Module):
             self.input_names = list(self.instance.GetAllInputBlobs().keys())
 
     def forward(self, *inputs, rtype="list"):
+        
         input_mats = {}
         tensor_flag = False
         tensor_gpu_flag = False
@@ -1056,12 +1063,21 @@ class Module(nn.Module):
                     tensor_flag = True
                     data = data.cpu().numpy()
                 input_mats[self.input_names[0]] = Mat(data)
-                
         input_shapes = {}
         for key, value in input_mats.items():
-            input_shapes[key] = value.GetDims()
+            input_shapes[key] = value.GetDims() 
+        for key in input_shapes.keys():
+            dims_rank = len(input_shapes[key])
+            dims_rank_min = len(self.min_input_shapes[key])
+            dims_rank_max = len(self.max_input_shapes[key])
+            if dims_rank == dims_rank_min and dims_rank == dims_rank_max:
+                for i in range(dims_rank):
+                    if input_shapes[key][i] < self.min_input_shapes[key][i] or input_shapes[key][i] > self.max_input_shapes[key][i]:
+                        raise RuntimeError("input size incompatible!")
+            else:
+                raise RuntimeError("input size incompatible!")
         self.instance.Reshape(input_shapes) 
-        
+
         for key, value in input_mats.items():
             self.instance.SetInputMat(value, MatConvertParam(), key) 
       

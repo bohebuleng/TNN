@@ -8,14 +8,14 @@ fi
 TORCHVISION_ENABLE="OFF"
 PYBIND_ENABLE="ON"
 
-export CUDNN_ROOT_DIR=/usr/local/cudnn-8.1.1
-export TENSORRT_ROOT_DIR=/usr/local/TensorRT-7.2.3.4
-if [ -z $1 ];then export LIBTORCH_ROOT_DIR=`find /usr/local/ -name "libtorch-shared-1.8.1+*"`
+export CUDNN_ROOT_DIR=/usr/local/cudnn-8.3.2
+export TENSORRT_ROOT_DIR=/usr/local/TensorRT-8.4.0.6
+if [ -z $1 ];then export LIBTORCH_ROOT_DIR=`find /usr/local/ -name "libtorch-shared-1.9.0+*"`
 else
     export LIBTORCH_ROOT_DIR=$1
 fi
 
-export LIBTORCHVISION_ROOT_DIR=`find /usr/local/ -name "libtorchvision*-0.9.1+*"`
+export LIBTORCHVISION_ROOT_DIR=`find /usr/local/ -name "libtorchvision*-0.10.0+*"`
 
 BUILD_DIR=${TNN_ROOT_PATH}/scripts/build_tnntorch_linux
 TNN_INSTALL_DIR=${TNN_ROOT_PATH}/scripts/tnntorch_linux_release
@@ -86,6 +86,7 @@ cudnn_dep_list=$( ldd libTNN.so | awk '{if (match($3, "cudnn")){ print $3}}' )
 cp $cudnn_dep_list ${TNN_INSTALL_DIR}/lib/
 cp ${CUDNN_ROOT_DIR}/lib64/libcudnn_cnn_infer.so.8 ${TNN_INSTALL_DIR}/lib/
 cp ${CUDNN_ROOT_DIR}/lib64/libcudnn_ops_infer.so.8 ${TNN_INSTALL_DIR}/lib/
+cp ${CUDNN_ROOT_DIR}/lib64/libcudnn_adv_infer.so.8 ${TNN_INSTALL_DIR}/lib/
 
 # torch
 torch_dep_list=$( ldd libTNN.so | awk '{if (match($3,"libtorch-shared")){ print $3}}' )

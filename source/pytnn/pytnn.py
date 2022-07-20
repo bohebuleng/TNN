@@ -1070,12 +1070,15 @@ class Module:
             dims_rank = len(input_shapes[key])
             dims_rank_min = len(self.min_input_shapes[key])
             dims_rank_max = len(self.max_input_shapes[key])
+            input_shapes_value = input_shapes[key]
+            min_input_shapes_value = self.min_input_shapes[key]
+            max_input_shapes_value = self.max_input_shapes[key]
             if dims_rank == dims_rank_min and dims_rank == dims_rank_max:
                 for i in range(dims_rank):
-                    if input_shapes[key][i] < self.min_input_shapes[key][i] or input_shapes[key][i] > self.max_input_shapes[key][i]:
+                    if input_shapes_value[i] < min_input_shapes_value[i] or input_shapes_value[i] > max_input_shapes_value[i]:
                         raise RuntimeError("input size incompatible!")
             else:
-                raise RuntimeError("input size incompatible!")
+                raise RuntimeError("input size incompatible!")            
         self.instance.Reshape(input_shapes) 
 
         for key, value in input_mats.items():
